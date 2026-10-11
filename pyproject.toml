@@ -1,0 +1,27 @@
+[project]
+name = "swedish-macro-dashboard"
+version = "0.1.0"
+description = "Streamlit dashboard combining Swedish macro data (Riksbank) with Stockholm stock market data (Yahoo Finance)"
+readme = "README.md"
+authors = [
+    { name = "Gaby-projects" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "pandas>=3.0.5",
+    "pip-system-certs>=5.3",
+    "requests>=2.34.2",
+    "tenacity>=9.0.0",
+    "streamlit>=1.54.0",
+    "plotly>=6.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.17.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"

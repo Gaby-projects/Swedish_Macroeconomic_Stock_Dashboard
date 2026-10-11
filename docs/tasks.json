@@ -1,0 +1,248 @@
+{
+  "tasks": [
+    {
+      "id": "T001",
+      "title": "Scaffold package directories",
+      "owner": "riksbank-data-expert",
+      "description": "Create the empty package subdirectories that later tasks write into: src/swedish_macro_dashboard/transforms/__init__.py, src/swedish_macro_dashboard/tabs/__init__.py, src/swedish_macro_dashboard/data/snapshots/.gitkeep, tests/__init__.py, docs/.gitkeep. Do not create app.py (streamlit-builder owns it in T019). Verify: `uv run python -c \"import swedish_macro_dashboard.transforms, swedish_macro_dashboard.tabs\"` exits 0.",
+      "dependencies": [],
+      "output_files": [
+        "src/swedish_macro_dashboard/transforms/__init__.py",
+        "src/swedish_macro_dashboard/tabs/__init__.py",
+        "src/swedish_macro_dashboard/data/snapshots/.gitkeep",
+        "tests/__init__.py",
+        "docs/.gitkeep"
+      ]
+    },
+    {
+      "id": "T002",
+      "title": "Add core dependencies and confirm Python 3.14 wheels",
+      "owner": "streamlit-builder",
+      "description": "Add streamlit, plotly (or the chart lib CHART_SPECS.md will name; default plotly), tenacity, pyarrow to project deps and pytest, pytest-mock, ruff to a dev dependency group in pyproject.toml. Run `uv sync` on Python 3.14 and confirm every package resolves to a wheel or builds cleanly; if any package has no 3.14 wheel, record the substitute chosen in README.md's Environment section. Verify: `uv sync` exits 0 and `uv run python -c \"import streamlit, plotly, tenacity, pyarrow, pytest\"` exits 0.",
+      "dependencies": ["T001"],
+      "output_files": ["pyproject.toml", "uv.lock"]
+    },
+    {
+      "id": "T003",
+      "title": "Add is_stale to COMMON_COLUMNS and set it in both clients",
+      "owner": "riksbank-data-expert",
+      "description": "Phase 0 gate. Append `is_stale` (bool, default False) as the tenth entry of COMMON_COLUMNS in data/schema.py and extend validate() so a frame lacking it raises SchemaError. Set `is_stale=False` in the frames returned by riksbank_client.fetch_macro_series and yahoo_client.fetch_market_data / to_common_schema so validate() keeps passing. Record the change in RIKSBANK_NOTES.md (create the file). Verify: validate() raises on a frame without is_stale; both existing clients' output passes validate() with a mocked HTTP response. No other task in the parallel phase starts until this lands.",
+      "dependencies": ["T001"],
+      "output_files": [
+        "src/swedish_macro_dashboard/data/schema.py",
+        "src/swedish_macro_dashboard/data/riksbank_client.py",
+        "src/swedish_macro_dashboard/data/yahoo_client.py",
+        "RIKSBANK_NOTES.md"
+      ]
+    },
+    {
+      "id": "T004",
+      "title": "Add gitignore entries and confirm no API keys are required",
+      "owner": "riksbank-data-expert",
+      "description": "Add to .gitignore: src/swedish_macro_dashboard/data/snapshots/* (except .gitkeep), .streamlit/secrets.toml, .pytest_cache/, .ruff_cache/. Re-confirm live that both the Riksbank endpoint and the Yahoo chart endpoint return 200 without any key or token; note the confirmation date in docs/api-research.md under a short 'Auth' heading. If either now requires a key, stop and flag to pm-plan instead of adding secrets handling. Verify: `git status` shows no snapshot files as untracked after a client run; docs/api-research.md has the Auth heading with today's date.",
+      "dependencies": ["T001"],
+      "output_files": [".gitignore", "docs/api-research.md"]
+    },
+    {
+      "id": "T005",
+      "title": "Create macro fixture data",
+      "owner": "riksbank-data-expert",
+      "description": "Create data/fixtures.py with fixture_macro_df() returning a deterministic (seeded) long-format frame for all 7 RIKSBANK_SERIES codes: at least 40 quarterly rows per Q series and 120 monthly rows per M series of actuals, plus 4-8 is_forecast=True rows per series after the last actual; is_stale=False; unit/category/frequency taken from constants. No network calls. Verify: passes schema.validate(), no nulls in date/metric_id/value, no duplicate (date, metric_id), sorted by metric_id then date.",
+      "dependencies": ["T003"],
+      "output_files": ["src/swedish_macro_dashboard/data/fixtures.py"]
+    },
+    {
+      "id": "T006",
+      "title": "Create market fixture data",
+      "owner": "yahoo-data-expert",
+      "description": "Add fixture_market_df() to the existing data/fixtures.py without modifying fixture_macro_df(). Return a deterministic (seeded) frame for all 19 ALL_TICKERS: at least 250 business-day rows per ticker with frequency 'D', plus one session of 5-minute rows (frequency '5min') per ticker; value is a plausible SEK close; category from SECTOR_BY_TICKER; unit 'SEK'; is_forecast=False; is_stale=False. No network calls. Verify: passes schema.validate(), no nulls in required columns, no duplicate (date, metric_id), fixture_macro_df() still importable and unchanged.",
+      "dependencies": ["T005"],
+      "output_files": ["src/swedish_macro_dashboard/data/fixtures.py"]
+    },
+    {
+      "id": "T007",
+      "title": "Write UI_PLAN.md",
+      "owner": "viz-ux-designer",
+      "description": "Produce UI_PLAN.md describing the layout of the three tabs (Macro Overview, Stock Market with 9 sub-tabs, Macro x Market), the sidebar (Refresh-now button, two freshness badges with green/amber/red states, Fixtures-mode toggle, show-forecasts toggle, lookback and window selectors), tile grouping by category, and the empty/stale/unavailable states for each tab. Reference SPEC.md section 4 feature names exactly. Verify: every feature F1-F5 in SPEC.md has a corresponding section; every control listed in SPEC.md section 4 appears in the sidebar spec.",
+      "dependencies": [],
+      "output_files": ["UI_PLAN.md"]
+    },
+    {
+      "id": "T008",
+      "title": "Write CHART_SPECS.md",
+      "owner": "viz-ux-designer",
+      "description": "Produce CHART_SPECS.md with one spec per chart: macro tile sparkline (with dashed forecast segment), sector rebased-to-100 line chart including the equal-weighted index line, all-sectors index chart, intraday 'last session' 5-minute view, and the Macro x Market dual-axis overlay. For each: chart library, input columns from COMMON_COLUMNS, axes, colour rules for is_stale/is_forecast, and the transform function it consumes. Verify: every chart references only COMMON_COLUMNS columns or a named transform output; the library named matches what T002 installed or explicitly requests a change from streamlit-builder.",
+      "dependencies": ["T007"],
+      "output_files": ["CHART_SPECS.md"]
+    },
+    {
+      "id": "T009",
+      "title": "Add retry and snapshot fallback to the Riksbank client",
+      "owner": "riksbank-data-expert",
+      "description": "In riksbank_client.py wrap each series request with exponential-backoff retry (max 3 attempts on timeout/429/5xx). On success write the full macro frame to data/snapshots/ (parquet if pyarrow installed via T002, otherwise CSV; record the format in docs/api-research.md). On final failure load the snapshot and return it with is_stale=True and last_updated set to the snapshot's write time; if no snapshot exists return an empty frame with all COMMON_COLUMNS. Never raise to the caller. Also measure the earliest non-forecast date per series from the latest policy round and record it in RIKSBANK_NOTES.md, naming any series with under 10 years of actuals. Include mocked-HTTP unit tests under tests/ for the success, snapshot-fallback and no-snapshot paths. Verify: those tests pass; snapshot file appears after a successful mocked fetch.",
+      "dependencies": ["T003", "T004"],
+      "output_files": [
+        "src/swedish_macro_dashboard/data/riksbank_client.py",
+        "tests/test_riksbank_client.py",
+        "RIKSBANK_NOTES.md",
+        "docs/api-research.md"
+      ]
+    },
+    {
+      "id": "T010",
+      "title": "Validate and clean Riksbank client output",
+      "owner": "riksbank-data-expert",
+      "description": "Apply the SPEC.md 3.5 cleaning rules inside riksbank_client.py before any return (live or snapshot): schema.validate(), dedup on (date, metric_id) keeping last, coerce date/last_updated to datetime64, value to float64, is_forecast/is_stale to bool, drop rows with null date/metric_id/value and log the count, sort by metric_id then date, normalise Q/M dates to the convention documented in RIKSBANK_NOTES.md. Add tests that feed a dirty mocked response (duplicates, nulls, string numbers) and assert the cleaned output. Verify: tests pass; output on the fixture-shaped dirty input has zero nulls, zero duplicates and matching unit/category/frequency for every row.",
+      "dependencies": ["T009"],
+      "output_files": [
+        "src/swedish_macro_dashboard/data/riksbank_client.py",
+        "tests/test_riksbank_client.py",
+        "RIKSBANK_NOTES.md"
+      ]
+    },
+    {
+      "id": "T011",
+      "title": "Build macro transforms",
+      "owner": "riksbank-data-expert",
+      "description": "Create transforms/macro_transforms.py with: latest_actuals(macro_df) returning one non-forecast row per series; gap_metrics(macro_df) returning GDP gap, CPIF minus 2% target and CPIF excl. energy minus 2% as floats; cycle_state(macro_df) returning a label from a fixed set of at most 5 values plus a one-line rationale string; sparkline_series(macro_df, metric_id, include_forecast) returning the series for a tile. Functions take a cleaned frame and never re-clean. Add tests against fixture_macro_df(). Verify: tests pass; cycle_state is deterministic on the fixture.",
+      "dependencies": ["T005", "T010"],
+      "output_files": [
+        "src/swedish_macro_dashboard/transforms/macro_transforms.py",
+        "tests/test_macro_transforms.py"
+      ]
+    },
+    {
+      "id": "T012",
+      "title": "Fix intraday timestamp collapse in get_ticker_history",
+      "owner": "yahoo-data-expert",
+      "description": "Remove the unconditional .normalize() in yahoo_client.get_ticker_history so 5-minute bars keep their full timestamp; normalise only when interval is '1d' or coarser. Set frequency to '5min' for intraday rows and 'D' for daily rows. Add a mocked test with a 1d/5m response asserting more than one distinct date per ticker. Verify: the test passes and daily-interval rows are still at midnight.",
+      "dependencies": ["T003"],
+      "output_files": [
+        "src/swedish_macro_dashboard/data/yahoo_client.py",
+        "tests/test_yahoo_client.py"
+      ]
+    },
+    {
+      "id": "T013",
+      "title": "Add per-ticker retry and snapshot fallback to the Yahoo client",
+      "owner": "yahoo-data-expert",
+      "description": "In yahoo_client.fetch_market_data fetch all 19 tickers with per-ticker exponential-backoff retry (max 3 attempts on timeout/429/5xx). A failed ticker never aborts the batch. On success write the full market frame to data/snapshots/ in the same format riksbank-data-expert chose in T009. On a ticker's final failure fill its rows from the snapshot with is_stale=True (or omit the ticker if no snapshot); on total failure with no snapshot return an empty frame with all COMMON_COLUMNS. Never raise to the caller. Record the confirmed daily-history depth for range=10y in docs/api-research.md. Include mocked tests for one-ticker-fails, all-fail-with-snapshot and all-fail-no-snapshot. Verify: tests pass; a successful mocked fetch overwrites the snapshot.",
+      "dependencies": ["T012", "T004"],
+      "output_files": [
+        "src/swedish_macro_dashboard/data/yahoo_client.py",
+        "tests/test_yahoo_client.py",
+        "docs/api-research.md"
+      ]
+    },
+    {
+      "id": "T014",
+      "title": "Validate and clean Yahoo client output",
+      "owner": "yahoo-data-expert",
+      "description": "Apply the SPEC.md 3.5 cleaning rules inside yahoo_client.py before any return (live or snapshot): schema.validate(), dedup on (date, metric_id) keeping last, coerce dtypes, drop rows with null close (all-NaN ticker-days) and log the count, sort by metric_id then date, set category from SECTOR_BY_TICKER and unit 'SEK'. Add tests feeding a mocked response containing null bars and duplicate timestamps. Verify: tests pass; output has zero nulls in required columns, zero duplicates, metric_id subset of ALL_TICKERS, and re-validates against the T003 schema.",
+      "dependencies": ["T013"],
+      "output_files": [
+        "src/swedish_macro_dashboard/data/yahoo_client.py",
+        "tests/test_yahoo_client.py"
+      ]
+    },
+    {
+      "id": "T015",
+      "title": "Build market transforms",
+      "owner": "yahoo-data-expert",
+      "description": "Create transforms/market_transforms.py with: equal_weighted_sector_index(market_df, sector) -> pd.Series indexed by date, rebased to 100 at its first date, using daily rows only; returns_table(market_df) returning one row per ticker with 1d, 1w, 1m, YTD, 1y returns (NaN when the window is unavailable); sector_returns_table(market_df) doing the same per sector index; rebase_to_100(market_df, tickers, start) for charts. Functions take a cleaned frame and never re-clean. Add tests against fixture_market_df(). Verify: tests pass; a one-ticker sector's index equals that ticker rebased.",
+      "dependencies": ["T006", "T014"],
+      "output_files": [
+        "src/swedish_macro_dashboard/transforms/market_transforms.py",
+        "tests/test_market_transforms.py"
+      ]
+    },
+    {
+      "id": "T016",
+      "title": "Build overlay transforms and OVERLAY_NOTES.md",
+      "owner": "macro-market-expert",
+      "description": "Create transforms/overlay_transforms.py with: align_macro_market(macro_df, market_series, metric_id) aligning one non-forecast macro series onto the market series' date index (forward-fill or resample, documented); rolling_correlation(aligned_df, window) returning a scalar or series for the selected window; overlay_frame(...) producing the exact frame CHART_SPECS.md's dual-axis chart consumes. Write OVERLAY_NOTES.md stating the alignment method, window definitions and any caveats. Add tests running every macro series against every sector index from the two fixtures. Verify: tests pass; aligned output has no nulls after the first macro observation.",
+      "dependencies": ["T011", "T015"],
+      "output_files": [
+        "src/swedish_macro_dashboard/transforms/overlay_transforms.py",
+        "tests/test_overlay_transforms.py",
+        "OVERLAY_NOTES.md"
+      ]
+    },
+    {
+      "id": "T017",
+      "title": "Build dashboard shell, shared components and caching wiring",
+      "owner": "streamlit-builder",
+      "description": "Create app.py at the repo root and tabs/components.py. app.py: page config, three empty tabs named per UI_PLAN.md, sidebar with Refresh-now button, Fixtures-mode toggle, and two freshness badges. Wrap fetch_macro_series (ttl 6h) and fetch_market_data (ttl 15min) in st.cache_data functions in app.py; Refresh-now calls st.cache_data.clear() then reruns; Fixtures-mode routes to fixtures.py instead. components.py: freshness_badge(df, source), stale_caption(df), unavailable_message(source), sparkline/tile helpers per CHART_SPECS.md. Verify: `uv run streamlit run app.py` boots with three tabs and both badges; two reruns inside the TTL make zero HTTP calls (assert via a mocked request counter in tests/test_app_cache.py).",
+      "dependencies": ["T002", "T006", "T008", "T010", "T014"],
+      "output_files": [
+        "app.py",
+        "src/swedish_macro_dashboard/tabs/components.py",
+        "tests/test_app_cache.py"
+      ]
+    },
+    {
+      "id": "T018",
+      "title": "Build the Macro Overview tab",
+      "owner": "streamlit-builder",
+      "description": "Create tabs/macro_overview.py rendering the State-of-the-cycle summary tile plus 7 tiles grouped under Growth / Labour / Prices / Policy, each with latest actual value, date, data-span label and sparkline, with the show-forecasts toggle adding a dashed forecast segment. Uses macro_transforms only; no data cleaning in the tab. Renders the unavailable state on an empty frame and a muted caption when is_stale is true. Verify: tab renders on fixture_macro_df() and on an empty frame without exception; toggling forecasts does not change the latest-value numbers.",
+      "dependencies": ["T017", "T011"],
+      "output_files": ["src/swedish_macro_dashboard/tabs/macro_overview.py"]
+    },
+    {
+      "id": "T019",
+      "title": "Build the Stock Market tab with sector sub-tabs",
+      "owner": "streamlit-builder",
+      "description": "Create tabs/stock_market.py rendering 8 sector sub-tabs plus 'All sectors'. Each sector sub-tab: returns_table for its tickers and a rebased-to-100 chart including the labelled equal-weighted index line; 'All sectors': sector_returns_table and a chart of all 8 sector indices. A lookback selector (1m / 6m / 1y / 5y / max) drives both table window and chart x-range. Tickers with no data in the window show 'n/a'. Uses market_transforms only. Verify: exactly 9 sub-tabs render on fixture_market_df(); switching sub-tab or lookback updates both table and chart; empty frame renders the unavailable state.",
+      "dependencies": ["T017", "T015"],
+      "output_files": ["src/swedish_macro_dashboard/tabs/stock_market.py"]
+    },
+    {
+      "id": "T020",
+      "title": "Build the Macro x Market overlay tab",
+      "owner": "streamlit-builder",
+      "description": "Create tabs/macro_market.py with a macro-series selector (7), a market-series selector (19 tickers + 8 sector indices), a window selector (1y / 3y / 5y / max), a dual-axis chart per CHART_SPECS.md, the correlation value with its window, and a caption stating the alignment method from OVERLAY_NOTES.md. Uses overlay_transforms only. Verify: every macro x market combination renders on the fixtures without exception; changing the window changes the displayed correlation; either source empty renders the unavailable state.",
+      "dependencies": ["T017", "T016"],
+      "output_files": ["src/swedish_macro_dashboard/tabs/macro_market.py"]
+    },
+    {
+      "id": "T021",
+      "title": "Run failure-simulation checks",
+      "owner": "verifier",
+      "description": "With HTTP mocked, exercise: (a) Yahoo fails with a snapshot present -> Yahoo badge amber, Stock Market tab renders, Riksbank badge green; (b) Riksbank fails with no snapshot -> badge red, Macro Overview shows the unavailable message, no traceback; (c) one ticker fails -> other 18 live, failed ticker stale or absent; (d) Fixtures-mode on with the network blocked -> all three tabs render; (e) Refresh-now -> new HTTP calls and updated badge timestamps. Report each failing case to the owning agent (client behaviour -> data agent; badge/tab behaviour -> streamlit-builder). Verify: all five cases pass.",
+      "dependencies": ["T018", "T019", "T020"],
+      "output_files": []
+    },
+    {
+      "id": "T022",
+      "title": "Assemble the full test suite",
+      "owner": "streamlit-builder",
+      "description": "Add tests/conftest.py with a session-wide fixture that blocks real sockets and provides shared mocked Riksbank/Yahoo responses; add a pytest section to pyproject.toml (testpaths, src import mode). Ensure the tests written in T009-T016 and T017 are collected together and none hits the network. Verify: `uv run pytest` exits 0 with every test file collected; running with the network physically disabled gives the same result.",
+      "dependencies": ["T017", "T011", "T015", "T016"],
+      "output_files": ["tests/conftest.py", "pyproject.toml"]
+    },
+    {
+      "id": "T023",
+      "title": "Run lint pass",
+      "owner": "verifier",
+      "description": "Run `uv run ruff check .` and `uv run ruff format --check .` across app.py, src/ and tests/. Report every violation to the owning agent of the file (per CLAUDE.md ownership table); do not edit. Verify: both commands exit 0 after owners fix their files.",
+      "dependencies": ["T018", "T019", "T020", "T022"],
+      "output_files": []
+    },
+    {
+      "id": "T024",
+      "title": "Run manual acceptance test against SPEC.md",
+      "owner": "verifier",
+      "description": "Execute `uv sync` then `uv run streamlit run app.py` on Python >= 3.14 and walk every checkbox in SPEC.md section 5 in order, ticking pass/fail. Then run `uv run pytest`. Report each failed criterion with the owning agent named. Verify: all section-5 criteria pass, the app boots with three tabs plus sidebar refresh and badges, and pytest exits 0.",
+      "dependencies": ["T021", "T023"],
+      "output_files": []
+    },
+    {
+      "id": "T025",
+      "title": "Write README run instructions",
+      "owner": "streamlit-builder",
+      "description": "Update README.md with: prerequisites (uv, Python >= 3.14), `uv sync`, `uv run streamlit run app.py`, `uv run pytest`, one paragraph per tab, the sidebar controls, how snapshot fallback and staleness badges behave, and the Non-Goals list from SPEC.md section 6. Verify: a reader can go from clone to running app using only README.md; every command in it executes as written.",
+      "dependencies": ["T024"],
+      "output_files": ["README.md"]
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# On-disk client snapshot fallback (per-source, written by data clients)
+data_snapshots/
+
+# Test / lint caches
+.pytest_cache/
+.ruff_cache/
+
+
+# Playwright MCP session logs
+.playwright-mcp/
+# Claude Code: local settings and subagent memory (machine-specific)
+.claude/settings.local.json
+.claude/agent-memory/
